@@ -161,7 +161,9 @@ function CustomBlockDefinition(spec, receiver) {
     this.cachedTranslation = null; // for localized block specs
 
 	// transient - for "wishes"
- 	this.storedSemanticSpec = null;
+    this.storedSemanticSpec = null;
+
+    this.guid = newGuid();
 }
 
 // CustomBlockDefinition instantiating blocks
@@ -1190,6 +1192,17 @@ CustomCommandBlockMorph.prototype.mouseClickLeft = function () {
     this.edit();
 };
 
+CustomCommandBlockMorph.prototype.getDefinitionJSON = function(definition) {
+    definition = definition || this.definition;
+    return definition ? {
+        'spec': definition.spec,
+        'category': definition.category,
+        'type': definition.type,
+        'guid': definition.guid,
+        'isGlobal': definition.isGlobal,
+    } : null;
+};
+
 CustomCommandBlockMorph.prototype.edit = function () {
     var def = this.definition,
         editor, block,
@@ -1204,6 +1217,7 @@ CustomCommandBlockMorph.prototype.edit = function () {
             null,
             (definition) => {
                 if (definition) { // temporarily update everything
+                    Trace.log('BlockEditor.changeType', this.getDefinitionJSON(definition));
                     hat.blockCategory = definition.category;
                     hat.type = definition.type;
                     this.refreshPrototype();
@@ -1552,7 +1566,7 @@ CustomCommandBlockMorph.prototype.duplicateBlockDefinition = function () {
     if (exp instanceof BlockMorph) {
         rebindRecursiveCalls(exp);
     }
- 
+
 
     ide.flushPaletteCache();
     ide.refreshPalette();
@@ -1572,6 +1586,7 @@ CustomCommandBlockMorph.prototype.deleteBlockDefinition = function () {
     new DialogBoxMorph(
         this,
         () => {
+            Trace.log('IDE.deleteCustomBlock', this.getDefinitionJSON());
             rcvr.deleteAllBlockInstances(method);
             if (method.isGlobal) {
                 stage = rcvr.parentThatIsA(StageMorph);
@@ -2011,6 +2026,21 @@ BlockDialogMorph.prototype.init = function (target, action, environment) {
     this.fixLayout();
 };
 
+BlockDialogMorph.prototype.prompt = function() {
+    Trace.log('BlockTypeDialog.newBlock');
+    BlockDialogMorph.uber.prompt.apply(this, arguments);
+};
+
+BlockDialogMorph.prototype.ok = function() {
+    Trace.log('BlockTypeDialog.ok');
+    BlockDialogMorph.uber.ok.apply(this, arguments);
+};
+
+BlockDialogMorph.prototype.cancel = function() {
+    Trace.log('BlockTypeDialog.cancel');
+    BlockDialogMorph.uber.cancel.apply(this, arguments);
+};
+
 BlockDialogMorph.prototype.openForChange = function (
     title,
     category,
@@ -2019,6 +2049,8 @@ BlockDialogMorph.prototype.openForChange = function (
     pic,
     preventTypeChange // <bool>
 ) {
+    Trace.log('BlockTypeDialog.changeBlockType');
+
     var clr = SpriteMorph.prototype.blockColorFor(category);
     this.key = 'changeABlock';
     this.category = category;
@@ -2520,6 +2552,14 @@ function BlockEditorMorph(definition, target) {
     this.init(definition, target);
 }
 
+BlockEditorMorph.prototype.ok = function() {
+    Trace.log('BlockEditor.ok', this.getDefinitionJSON());
+    BlockEditorMorph.uber.ok.apply(this, arguments);
+};
+
+BlockEditorMorph.prototype.getDefinitionJSON = 
+    CustomCommandBlockMorph.prototype.getDefinitionJSON;
+
 BlockEditorMorph.prototype.init = function (definition, target) {
     var scripts, proto, scriptsFrame, block, comment,
         isLive = Process.prototype.enableLiveCoding ||
@@ -2529,6 +2569,8 @@ BlockEditorMorph.prototype.init = function (definition, target) {
     this.definition = definition;
     this.translations = definition.translationsAsText();
     this.handle = null;
+
+    Trace.log('BlockEditor.start', this.getDefinitionJSON());
 
     // initialize inherited properties:
     BlockEditorMorph.uber.init.call(
@@ -2543,6 +2585,10 @@ BlockEditorMorph.prototype.init = function (definition, target) {
     this.labelString = this.definition.isGlobal ? 'Block Editor'
     		: 'Method Editor';
     this.createLabel();
+
+    // Copy IDs when copying blocks, rather than making new block IDs
+    // as we would do for duplicating a block
+    BlockMorph.copyIDs = true;
 
     // create scripting area
     scripts = new ScriptsMorph();
@@ -2579,6 +2625,9 @@ BlockEditorMorph.prototype.init = function (definition, target) {
     proto.allComments().forEach(comment =>
         comment.align(proto)
     );
+
+    // Make sure to disable block ID copying
+    BlockMorph.copyIDs = false;
 
     scriptsFrame = new ScrollFrameMorph(scripts);
     scriptsFrame.padding = 10;
@@ -2656,6 +2705,7 @@ BlockEditorMorph.prototype.accept = function (origin) {
 
 BlockEditorMorph.prototype.cancel = function (origin) {
     if (origin instanceof CursorMorph) {return; }
+    Trace.log('BlockEditor.cancel', this.getDefinitionJSON());
     //this.refreshAllBlockInstances();
     this.close();
 };
@@ -2704,10 +2754,12 @@ BlockEditorMorph.prototype.close = function () {
     }
 
     this.destroy();
+    this.deduplicateBlockIDs();
 };
 
 BlockEditorMorph.prototype.consolidateDoubles = function () {
     this.target.replaceDoubleDefinitionsFor(this.definition);
+    this.deduplicateBlockIDs();
     this.destroy();
 };
 
@@ -2761,6 +2813,41 @@ BlockEditorMorph.prototype.refreshAllBlockInstances = function (oldSpec) {
     }
 };
 
+// It is possible for blocks to get duplicated by dragging them out of a block
+// editor and then cancelling the edit. This checks for any duplicate block IDs
+// in the just-closed block definition and then assigns new IDs to those blocks.
+BlockEditorMorph.prototype.deduplicateBlockIDs = function() {
+    var definition = this.definition;
+    function findBlockIDs(root, array) {
+        array = array || [];
+        // Ignore any children of this definition
+        if (root == definition || root == null) return array;
+        if (root instanceof BlockMorph) array.push(root.id);
+        // Include custom block definitions in Sprites and the Stage
+        if (root instanceof SpriteMorph) findBlockIDs(root.customBlocks);
+        if (root instanceof StageMorph) findBlockIDs(root.globalBlocks);
+        var children = root.children || root;
+        if (!(children instanceof Array)) return array;
+        children.forEach(function(child) {
+            if (child instanceof Morph) {
+                findBlockIDs(child, array);
+            }
+        });
+        return array;
+    }
+    var blockIDs = findBlockIDs(this.root());
+
+    var scripts = definition.scripts.slice();
+    if (this.definition.body) scripts.push(this.definition.body.expression);
+    scripts.forEach(function(script) {
+        if (script == null || !script.allChildren) return;
+        script.allChildren().forEach(function(block) {
+            if (!(block instanceof BlockMorph)) return;
+            if (blockIDs.includes(block.id)) block.getNewID();
+        });
+    });
+};
+
 BlockEditorMorph.prototype.updateDefinition = function () {
     var head, ide,
         oldSpec = this.definition.blockSpec(),
@@ -2768,6 +2855,10 @@ BlockEditorMorph.prototype.updateDefinition = function () {
         count = 1,
         spec, element;
 
+    // Copy IDs when copying blocks, rather than making new block IDs
+    // as we would do for duplicating a block
+    BlockMorph.copyIDs = true;
+    
     this.definition.receiver = this.target; // only for serialization
     this.definition.spec = this.prototypeSpec();
     this.definition.declarations = this.prototypeSlots();
@@ -2806,6 +2897,9 @@ BlockEditorMorph.prototype.updateDefinition = function () {
     }
 
     this.definition.body = this.context(head);
+
+    // Make sure to turn copying IDs off when finished
+    BlockMorph.copyIDs = false;
 
     // make sure the spec is unique
     spec = this.definition.spec;
@@ -3321,6 +3415,7 @@ BlockLabelFragmentMorph.prototype.mouseClickLeft = function () {
 };
 
 BlockLabelFragmentMorph.prototype.updateBlockLabel = function (newFragment) {
+    Trace.log('BlockEditor.updateBlockLabel', newFragment);
     var prot = this.parentThatIsA(BlockMorph);
     this.fragment = newFragment;
     if (prot) {

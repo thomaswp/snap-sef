@@ -2791,6 +2791,12 @@ BlockSymbolMorph.prototype.getShadowRenderColor = function () {
 BlockMorph.prototype = new SyntaxElementMorph();
 BlockMorph.prototype.constructor = BlockMorph;
 BlockMorph.uber = SyntaxElementMorph.prototype;
+// ID for the next BlockMorph to be created
+BlockMorph.nextId = 0;
+// Flag for whether copied BlockMorphs should also copy block IDs
+// This should default to false, but is temporarily set to true in special
+// circumstances, such as block relabeling
+BlockMorph.copyIDs = false;
 
 // BlockMorph preferences settings:
 
@@ -2818,6 +2824,7 @@ function BlockMorph() {
 }
 
 BlockMorph.prototype.init = function () {
+    this.id = BlockMorph.nextId++;
     this.selector = null; // name of method to be triggered
     this.blockSpec = ''; // formal description of label and arguments
     this.comment = null; // optional "sticky" comment morph
@@ -2830,6 +2837,10 @@ BlockMorph.prototype.init = function () {
     BlockMorph.uber.init.call(this);
     this.color = new Color(102, 102, 102);
     this.cachedInputs = null;
+};
+
+BlockMorph.prototype.getNewID = function() {
+    this.id = BlockMorph.nextId++;
 };
 
 BlockMorph.prototype.scriptTarget = function (noError) {
@@ -2867,6 +2878,19 @@ BlockMorph.prototype.toString = function () {
             this.constructor.toString().split(' ')[1].split('(')[0]) +
         ' ("' +
         this.blockSpec.slice(0, 30) + '...")';
+};
+
+BlockMorph.prototype.blockId = function() {
+    return {
+        'selector': this.selector,
+        'id': this.id,
+        'template': this.isTemplate,
+        'spec': this.blockSpec,
+    };
+};
+
+BlockMorph.prototype.userDestroy = function() {
+    Trace.log('Block.userDestroy', this.blockId());
 };
 
 // BlockMorph spec:
@@ -2958,6 +2982,10 @@ BlockMorph.prototype.setSpec = function (spec, definition) {
 };
 
 BlockMorph.prototype.userSetSpec = function (spec) {
+    Trace.log('Block.rename', {
+        'id': this.blockId(),
+        'name': arg,
+    });
     var tb = this.topBlock();
     tb.fullChanged();
     this.setSpec(spec);
@@ -3360,6 +3388,7 @@ BlockMorph.prototype.userMenu = function () {
     menu.addItem(
         "script pic...",
         () => {
+            Trace.log('Block.scriptPic', myself.blockId());
             var ide = this.parentThatIsA(IDE_Morph) ||
                     this.parentThatIsA(BlockEditorMorph).target.parentThatIsA(
                         IDE_Morph),
@@ -3649,6 +3678,8 @@ BlockMorph.prototype.toggleTransientVariable = function () {
     if (!varFrame) {return; }
     varFrame.vars[this.blockSpec].isTransient =
         !(varFrame.vars[this.blockSpec].isTransient);
+    Trace.log('Block.toggleTransientVariable',
+        varFrame.vars[this.blockSpec].isTransient);
 };
 
 BlockMorph.prototype.deleteBlock = function () {
@@ -3694,6 +3725,7 @@ BlockMorph.prototype.deleteBlock = function () {
 };
 
 BlockMorph.prototype.ringify = function () {
+    Trace.log('Block.ringify', this.blockId());
     // wrap a Ring around me
     var ring, top, center,
         target = this.selectForEdit(); // copy-on-edit
@@ -3728,6 +3760,7 @@ BlockMorph.prototype.ringify = function () {
 };
 
 BlockMorph.prototype.unringify = function () {
+    Trace.log('Block.unringify', this.blockId());
     // remove a Ring around me, if any
     var ring, top, center, scripts, block,
         target = this.selectForEdit(); // copy-on-edit
@@ -3789,6 +3822,10 @@ BlockMorph.prototype.relabel = function (alternativeSelectors) {
         menu.addItem(
             block.doWithAlpha(1, () => block.fullImage()),
             () => {
+                Trace.log('Block.relabel', {
+                    'id': this.blockId(),
+                    'selector': selector,
+                });
                 this.setSelector(selector, -offset);
                 this.scriptTarget().parentThatIsA(
                     IDE_Morph
@@ -3855,6 +3892,9 @@ BlockMorph.prototype.restoreInputs = function (oldInputs, offset = 0) {
         element = this,
         inputs = this.inputs(),
         leftOver = [];
+
+    // When relabeling, copied blocks in inputs should keep their IDs
+    BlockMorph.copyIDs = true;
 
     // gather leading surplus blocks
     for (i = 0; i < offset; i += 1) {
@@ -3971,12 +4011,20 @@ BlockMorph.prototype.restoreInputs = function (oldInputs, offset = 0) {
     }
     element.cachedInputs = null;
     this.cachedInputs = null;
+    // Make sure to set copyIDs back to false when finished
+    BlockMorph.copyIDs = false;
     return leftOver;
 };
 
 // BlockMorph helpscreens
 
 BlockMorph.prototype.showHelp = function () {
+    Trace.log('Block.showHelp',
+        // Since some buttons duplicate the showHelp function, we can show their
+        // selector in lieu of a full blockID (so they all have a selector)
+        (this.blockId ? this.blockId() : null) || {
+            selector: this.selector,
+        });
     var myself = this,
         ide = this.parentThatIsA(IDE_Morph),
         pic = new Image(),
@@ -4655,6 +4703,7 @@ BlockMorph.prototype.refactorThisVar = function (justTheTemplate) {
     // taking care of its lexical scope
 
     var receiver = this.scriptTarget(),
+        myself = this,
         oldName = this.instantiationSpec || this.blockSpec,
         cpy = this.fullCopy();
 
@@ -4669,6 +4718,11 @@ BlockMorph.prototype.refactorThisVar = function (justTheTemplate) {
     );
 
     function renameVarTo (newName) {
+        Trace.log('Block.refactorVar', {
+            'id': myself.blockId(),
+            'oldName': oldName,
+            'newName': newName,
+        });
         var block;
 
         if (this.parent instanceof SyntaxElementMorph) {
@@ -4725,6 +4779,10 @@ BlockMorph.prototype.refactorThisVar = function (justTheTemplate) {
 };
 
 BlockMorph.prototype.varExistsError = function (ide, where) {
+    Trace.log('Block.refactorVarError', {
+        'id': this.blockId(),
+        'where': where,
+    });
     ide.inform(
         'Variable exists',
         'A variable with this name already exists ' +
@@ -5384,6 +5442,13 @@ BlockMorph.prototype.hasLabels = function () {
 
 // BlockMorph copying
 
+// Override copy so that coppied Blocks get new IDs unless copyIDs is true
+BlockMorph.prototype.copy = function() {
+    var copy = BlockMorph.uber.copy.call(this);
+    if (!BlockMorph.copyIDs) copy.id = BlockMorph.nextId++;
+    return copy;
+};
+
 BlockMorph.prototype.fullCopy = function () {
     var ans = BlockMorph.uber.fullCopy.call(this);
     ans.removeHighlight();
@@ -5409,6 +5474,7 @@ BlockMorph.prototype.fullCopy = function () {
 };
 
 BlockMorph.prototype.reactToTemplateCopy = function () {
+    Trace.log('Block.created', this.blockId());
     if (this.isLocalVarTemplate) {
     	this.isLocalVarTemplate = null;
         this.fixLayout();
@@ -5448,6 +5514,12 @@ BlockMorph.prototype.mouseClickLeft = function () {
     if (receiver) {
         stage = receiver.parentThatIsA(StageMorph);
         if (stage) {
+            var process = stage.threads.findProcess(top, receiver);
+            if (process && !process.readyToTerminate) {
+                Trace.log('Block.clickStopRun', top.blockId());
+            } else {
+                Trace.log('Block.clickRun', top.blockId());
+            }
             stage.threads.toggleProcess(top, receiver);
         }
     }
@@ -5547,6 +5619,10 @@ BlockMorph.prototype.situation = function () {
 // BlockMorph sticky comments
 
 BlockMorph.prototype.prepareToBeGrabbed = function (hand) {
+    Trace.log('Block.grabbed', {
+        'id': this.blockId(),
+        'origin': this.bounds ? this.bounds.origin : null,
+    });
     var wrld = hand ? hand.world : this.world();
     this.allInputs().forEach(input =>
         delete input.bindingID
@@ -5610,6 +5686,10 @@ BlockMorph.prototype.stackWidth = function () {
 };
 
 BlockMorph.prototype.snap = function () {
+    Trace.log('Block.snapped', {
+        'id': this.blockId(),
+        'origin': this.bounds ? this.bounds.origin : null,
+    });
     var top = this.topBlock(),
         receiver,
         stage,
@@ -5938,6 +6018,11 @@ CommandBlockMorph.prototype.snap = function (hand) {
         this.setLeft(target.element.left());
         this.bottomBlock().nextBlock(target.element);
     } else if (target.loc === 'wrap') {
+        Trace.log('CommandBlock.wrap', {
+            'id': this.blockId(),
+            'target': target.element.blockId ? target.element.blockId() : null,
+        });
+
         cslot = detect( // this should be a method making use of caching
             this.inputs(), // these are already cached, so maybe it's okay
             each => each instanceof CSlotMorph
@@ -6011,6 +6096,7 @@ CommandBlockMorph.prototype.isStop = function () {
 // CommandBlockMorph deleting
 
 CommandBlockMorph.prototype.userDestroy = function () {
+    CommandBlockMorph.uber.userDestroy.call(this);
     var target = this.selectForEdit(); // enable copy-on-edit
     if (target !== this) {
         return this.userDestroy.call(target);
@@ -6845,7 +6931,8 @@ ReporterBlockMorph.prototype.determineSlotSpec = function () {
 // ReporterBlockMorph events
 
 ReporterBlockMorph.prototype.mouseClickLeft = function (pos) {
-    var label;
+    var label,
+        myself = this;
     if (this.parent instanceof BlockInputFragmentMorph) {
         return this.parent.mouseClickLeft();
     }
@@ -6875,6 +6962,7 @@ ReporterBlockMorph.prototype.mouseClickLeft = function (pos) {
 // ReporterBlockMorph deleting
 
 ReporterBlockMorph.prototype.userDestroy = function () {
+    ReporterBlockMorph.uber.userDestroy.call(this);
     // make sure to restore default slot of parent block
     var target = this.selectForEdit(); // enable copy-on-edit
     if (target !== this) {
@@ -8069,7 +8157,10 @@ ScriptsMorph.prototype.userMenu = function () {
 
 // ScriptsMorph user menu features:
 
-ScriptsMorph.prototype.cleanUp = function () {
+ScriptsMorph.prototype.cleanUp = function (silently) {
+    if (!silently) {
+        Trace.log('Scripts.cleanUp');
+    }
     var target = this.selectForEdit(), // enable copy-on-edit
         origin = target.topLeft(),
         y = target.cleanUpMargin;
@@ -8095,6 +8186,7 @@ ScriptsMorph.prototype.cleanUp = function () {
 };
 
 ScriptsMorph.prototype.exportScriptsPicture = function () {
+    Trace.log('Scripts.exportPicture');
     var pic = this.scriptsPicture(),
         ide = this.world().children[0],
         xml = this.scriptsXML();
@@ -8194,6 +8286,10 @@ ScriptsMorph.prototype.addComment = function () {
 ScriptsMorph.prototype.undrop = function () {
     if (this.isAnimating) {return; }
     if (!this.dropRecord || !this.dropRecord.lastRecord) {return; }
+    Trace.log('Scripts.undrop', {
+        'action': this.dropRecord.action,
+        'block': this.dropRecord.lastDroppedBlock.blockId()
+    });
     if (!this.dropRecord.situation) {
         this.dropRecord.situation =
             this.dropRecord.lastDroppedBlock.situation();
@@ -8215,6 +8311,10 @@ ScriptsMorph.prototype.redrop = function () {
     if (this.isAnimating) {return; }
     if (!this.dropRecord || !this.dropRecord.nextRecord) {return; }
     this.dropRecord = this.dropRecord.nextRecord;
+    Trace.log('Scripts.redrop', {
+        'action': this.dropRecord.action,
+        'block': this.dropRecord.lastDroppedBlock.blockId()
+    });
     if (this.dropRecord.action === 'delete') {
         this.recoverLastDrop(true);
         this.dropRecord.lastDroppedBlock.destroy();
@@ -8682,6 +8782,19 @@ ArgMorph.prototype.init = function (type) {
     if (type === 'list') {
         this.alpha = 1;
     }
+};
+
+// Get a unique ID for the input slot represented by this ArgMorph
+ArgMorph.prototype.argId = function() {
+    var block = this.parentThatIsA(BlockMorph);
+    if (!block) return null;
+    // Get the index of this arg out of all the parent's args
+    var index = this.parent.children.filter(function(child) {
+        return child instanceof ArgMorph;
+    }).indexOf(this);
+    var id = block.blockId();
+    id.argIndex = index;
+    return id;
 };
 
 // ArgMorph preferences settings:
@@ -10087,7 +10200,13 @@ InputSlotMorph.prototype.menuFromDict = function (
         }
     }
     if (!noEmptyOption) {
-        menu.addItem(' ', null);
+        menu.addItem(' ', function() {
+            Trace.log('InputSlot.menuItemSelected', {
+                'id': myself.argId(),
+                'item': ' ',
+            });
+            return ' ';
+        });
     }
     for (key in choices) {
         if (Object.prototype.hasOwnProperty.call(choices, key)) {
@@ -10154,19 +10273,30 @@ InputSlotMorph.prototype.menuFromDict = function (
                     false  // verbatim? - do translate, if inside an array
                 );
             } else {
-                menu.addItem(
-                    key,
-                    choices[key],
-                    null, // hint
-                    null, // color
-                    null, // bold
-                    null, // italic
-                    null, // doubleClickAction
-                    null, // shortcut
-                    !(choices[key] instanceof Array) &&
-                        typeof choices[key] !== 'function' &&
-                            typeof(choices[key]) !== 'number' // verbatim?
-                );
+                // capture the key in a function call to avoid closure nonsense
+                (function (fKey) {
+                    menu.addItem(
+                        fKey,
+                        function() {
+                            Trace.log('InputSlot.menuItemSelected', {
+                                'id': myself.argId(),
+                                'item': fKey,
+                            });
+                            var choice = choices[fKey];
+                            if (choice instanceof Function) return choice();
+                            return choice;
+                        },
+                        null, // hint
+                        null, // color
+                        null, // bold
+                        null, // italic
+                        null, // doubleClickAction
+                        null, // shortcut
+                        !(choices[fKey] instanceof Array) &&
+                            typeof choices[fKey] !== 'function' &&
+                                typeof(choices[fKey]) !== 'number' // verbatim?
+                    );
+                })(key);
             }
         }
     }
@@ -10917,6 +11047,10 @@ InputSlotMorph.prototype.reactToKeystroke = function () {
 };
 
 InputSlotMorph.prototype.reactToEdit = function () {
+    Trace.log('InputSlot.edited', {
+        'id': this.argId(),
+        'text': this.contents().text,
+    });
     var block = this.parentThatIsA(BlockMorph),
         ide = this.parentThatIsA(IDE_Morph);
     this.contents().clearSelection();
@@ -11664,6 +11798,10 @@ BooleanSlotMorph.prototype.toggleValue = function () {
     }
     ide = this.parentThatIsA(IDE_Morph);
     this.value = this.nextValue();
+    Trace.log('BooleanSlotMorph.toggleValue', {
+        'id': this.argId(),
+        'value': this.value,
+    });
     if (ide) {
         if (!block.isTemplate) {
             ide.recordUnsavedChanges();
@@ -12428,6 +12566,10 @@ ColorSlotMorph.prototype.getUserColor = function () {
     hand.processMouseDown = nop;
 
     hand.processMouseUp = function () {
+        Trace.log('ColorArg.changeColor', {
+            'id': myself.argId(),
+            'color': myself.color,
+        });
         pal.destroy();
         hand.processMouseMove = mouseMoveBak;
         hand.processMouseDown = mouseDownBak;
@@ -12876,7 +13018,7 @@ MultiArgMorph.prototype.insertNewInputBefore = function (anInput, contents) {
     var idx = this.children.indexOf(anInput),
         newPart = this.labelPart(this.slotSpec),
         infix;
-    
+
     if (this.maxInputs && (this.inputs().length >= this.maxInputs)) {
         return;
     }
@@ -13050,6 +13192,7 @@ MultiArgMorph.prototype.mouseClickLeft = function (pos) {
     if (rightArrow.bounds.containsPoint(pos)) {
         for (i = 0; i < repetition; i += 1) {
             if (rightArrow.isVisible) {
+                Trace.log('MultiArg.addInput', this.argId());
                 target.addInput();
             }
         }
@@ -13061,6 +13204,7 @@ MultiArgMorph.prototype.mouseClickLeft = function (pos) {
     ) {
         for (i = 0; i < repetition; i += 1) {
             if (leftArrow.isVisible) {
+                Trace.log('MultiArg.removeInput', this.argId());
                 target.removeInput();
             }
         }

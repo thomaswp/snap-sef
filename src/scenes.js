@@ -62,7 +62,7 @@ modules.scenes = '2022-March-04';
 
 // Project instance creation:
 
-function Project(scenes, current) {
+function Project(scenes, current, guid) {
     var projectScene;
 
     this.scenes = scenes || new List();
@@ -72,6 +72,7 @@ function Project(scenes, current) {
     this.name = null;
     this.notes = null;
     this.thumbnail = null;
+    this.guid = guid || newGuid();
 
     projectScene = this.scenes.at(1);
     if (projectScene) {
