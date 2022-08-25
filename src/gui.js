@@ -8564,7 +8564,7 @@ ProjectDialogMorph.prototype.shareProject = function () {
             ) + '\n"' + proj.projectname + '"?',
             'Share Project',
             () => {
-                Trace.log('ProjectDialogMorph.shareProject', {
+                Trace.log('ProjectDialog.shareProject', {
                     name: proj.ProjectName,
                     isThisProject: proj.ProjectName === ide.projectName,
                 });
@@ -8613,7 +8613,7 @@ ProjectDialogMorph.prototype.unshareProject = function () {
             ) + '\n"' + proj.projectname + '"?',
             'Unshare Project',
             () => {
-                Trace.log('ProjectDialogMorph.unshareProject',
+                Trace.log('ProjectDialog.unshareProject',
                     proj.ProjectName);
                 ide.showMessage('unsharing\nproject...');
                 ide.cloud.unshareProject(
