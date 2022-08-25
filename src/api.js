@@ -69,6 +69,35 @@ window.onmessage = function (event) {
     }
 };
 
+function SnapEventManager() { 
+    this.init();
+}
+
+SnapEventManager.prototype.init = function() {
+    this.globalListeners = [];
+    this.eventListeners = new Map();
+}
+
+SnapEventManager.prototype.log = function(eventType, data) {
+    this.globalListeners.forEach(listener => listener(eventType, data));
+    if (this.eventListeners.has(eventType)) {
+        this.eventListeners.get(eventType).forEach(listener => listener(eventType, data));
+    }
+}
+
+SnapEventManager.prototype.addGlobalListener = function(listener) {
+    this.globalListeners.push(listener);
+}
+
+SnapEventManager.prototype.addEventListener = function(eventType, listener) {
+    if (!this.eventListeners.has(eventType)) {
+        this.eventListeners.set(eventType, []);
+    }
+    this.eventListeners.get(eventType).push(listener);
+}
+
+window.Trace = new SnapEventManager();
+
 IDE_Morph.prototype.getScenes = function () {
     // return an array of all scenenames
     return this.scenes.itemsArray().map(each => each.name);
@@ -238,7 +267,7 @@ IDE_Morph.prototype.newList = function (array) {
 };
 
 IDE_Morph.prototype.getProjectXML = function () {
-    return this.serializer.serialize(new Project(this.scenes, this.scene));
+    return this.serializer.serialize(this.getProject());
 };
 
 IDE_Morph.prototype.loadProjectXML = function (projectXML) {
