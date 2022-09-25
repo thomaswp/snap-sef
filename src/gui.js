@@ -5689,7 +5689,6 @@ IDE_Morph.prototype.rawOpenProjectString = function (str) {
             );
         } catch (err) {
             this.showMessage('Load failed: ' + err);
-            Trace.logError(err);
         }
     } else {
         this.openProject(
