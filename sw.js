@@ -1,5 +1,5 @@
-var snapVersion = '8.0.0',
-    cacheName = 'snap-pwa',
+var snapVersion = '9.0.6',
+    cacheName = `snap-pwa-${snapVersion}`,
     filesToCache = [
         'snap.html',
 
@@ -69,6 +69,7 @@ var snapVersion = '8.0.0',
         'locale/lang-sv.js',
         'locale/lang-ta.js',
         'locale/lang-te.js',
+        'locale/lang-ti.js',
         'locale/lang-tr.js',
         'locale/lang-ua.js',
         'locale/lang-zh_CN.js',
@@ -86,7 +87,6 @@ var snapVersion = '8.0.0',
         'libraries/bignums.js',
         'libraries/bitwise.xml',
         'libraries/bbtSnapExtension.js',
-        'libraries/cases.xml',
         'libraries/colors.xml',
         'libraries/crayons.xml',
         'libraries/Eisenbergification.xml',
@@ -98,6 +98,8 @@ var snapVersion = '8.0.0',
         'libraries/list_comprehension_module.xml',
         'libraries/list-utilities.xml',
         'libraries/localstorage_module.xml',
+        'libraries/tiles_module.xml',
+        'libraries/arcs_module.xml',
         'libraries/make-variables.xml',
         'libraries/maps_module.xml',
         'libraries/menu_module.xml',
@@ -129,6 +131,7 @@ var snapVersion = '8.0.0',
             'libraries/TuneScope/12869_6_JCLive_sf2_file.js',
             'libraries/TuneScope/0580_GeneralUserGS_sf2_file.js',
             'libraries/TuneScope/0560_GeneralUserGS_sf2_file.js',
+            'libraries/TuneScope/0110_GeneralUserGS_sf2_file.js',
             'libraries/TuneScope/0680_JCLive_sf2_file.js',
             'libraries/TuneScope/0121_FluidR3_GM_sf2_file.js',
             'libraries/TuneScope/1070_FluidR3_GM_sf2_file.js',
@@ -141,6 +144,7 @@ var snapVersion = '8.0.0',
             'libraries/TuneScope/0700_FluidR3_GM_sf2_file.js',
             'libraries/TuneScope/1040_Aspirin_sf2_file.js',
             'libraries/TuneScope/0770_SBLive_sf2.js',
+            'libraries/TuneScope/0100_SBLive_sf2.js',
             'libraries/TuneScope/0650_FluidR3_GM_sf2_file.js',
             'libraries/TuneScope/1050_FluidR3_GM_sf2_file.js',
             'libraries/TuneScope/0180_Chaos_sf2_file.js',
@@ -148,6 +152,7 @@ var snapVersion = '8.0.0',
             'libraries/TuneScope/0260_JCLive_sf2_file.js',
             'libraries/TuneScope/0241_JCLive_sf2_file.js',
             'libraries/TuneScope/0350_JCLive_sf2_file.js',
+            'libraries/TuneScope/0291_LesPaul_sf2_file.js',
             'libraries/TuneScope/0320_GeneralUserGS_sf2_file.js',
             'libraries/TuneScope/0230_Aspirin_sf2_file.js',
 
@@ -170,6 +175,12 @@ var snapVersion = '8.0.0',
         'Costumes/abby-c.svg',
         'Costumes/abby-d.svg',
         'Costumes/airplane2.png',
+        'Costumes/aleassa01.png',
+        'Costumes/aleassa02.png',
+        'Costumes/aleassa03.png',
+        'Costumes/aleassa04.png',
+        'Costumes/aleassa05.png',
+        'Costumes/aleassa06.png',
         'Costumes/alonzo.png',
         'Costumes/Alonzo3D.png',
         'Costumes/alonzo.svg',
@@ -612,6 +623,12 @@ var snapVersion = '8.0.0',
         'Costumes/ruby-b.png',
         'Costumes/sail-boat.png',
         'Costumes/sam.gif',
+        'Costumes/sarron01.png',
+        'Costumes/sarron02.png',
+        'Costumes/sarron03.png',
+        'Costumes/sarron04.png',
+        'Costumes/sarron05.png',
+        'Costumes/sarron06.png',
         'Costumes/saxophone-a.svg',
         'Costumes/saxophone-b.svg',
         'Costumes/scarf1.svg',
@@ -740,6 +757,7 @@ var snapVersion = '8.0.0',
         'Examples/vee.xml'
     ];
 
+console.log('service worker executed')
 /* Start the service worker and cache all of the app's content */
 self.addEventListener('install', function(e) {
     e.waitUntil(
@@ -763,13 +781,12 @@ self.addEventListener('activate', (evt) => {
 });
 
 /* Serve cached content when offline */
-self.addEventListener('fetch', function(e) {
-    e.respondWith(
-        caches.match(
-            e.request,
-            {'ignoreSearch': true}
-        ).then(function(response) {
-            return response || fetch(e.request);
-        })
-    );
+self.addEventListener('fetch', function(event) {
+    event.respondWith(
+      fetch(event.request).catch(function(e) {
+        return caches.open(cacheName).then(function(cache) {
+          return cache.match(event.request,
+                             {'ignoreSearch': true}).then(response => response);
+        });
+    }));
 });

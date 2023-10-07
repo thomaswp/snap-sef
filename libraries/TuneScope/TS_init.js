@@ -16,6 +16,18 @@ for (var i = 0; i <= 127; i++) {
     tempMidiFreqs[note] = 440 * Math.pow(2, (i - 69)/12)
 }
 
+window._currentNote = ""
+window._parsed = ""
+window._isParsed = false
+window.parent._ts_pausePlayback = false;
+
+const _ide = world.children[0];
+const original_stop = _ide.stopAllScripts.bind(_ide);
+_ide.stopAllScripts = function() {
+  original_stop();
+  window.parent._ts_pausePlayback = true;
+}
+
 const _convertToSharp = (note) => {
     const splitByFlat = note.split("b");
     if (splitByFlat.length < 2) return note; // does not include a flat
@@ -38,6 +50,7 @@ window.parent.midiFreqs = tempMidiFreqs;
 
 
 window.playNote = (note, noteLength, instrumentName, volume) => {
+  window._currentNote = note
    if (note == "R" || note == "r") return;
 
    note = _convertToSharp(note);
@@ -48,7 +61,6 @@ window.playNote = (note, noteLength, instrumentName, volume) => {
    // console.log(instrumentName);
    let currentInstrumentData = window.parent.instrumentData[instrumentName]
 			player.loader.decodeAfterLoading(audioContext, currentInstrumentData.name);
-   
 			function play(){
     const vol = volume || window.parent.instrumentVolumes[instrumentName] || window.parent.globalInstrumentVolume;
     console.log(note, noteLength, instrumentName, vol)
@@ -117,6 +129,10 @@ window.parent.instrumentData = {
         path: "https://surikov.github.io/webaudiofontdata/sound/0260_JCLive_sf2_file.js",
         name: "_tone_0260_JCLive_sf2_file"
     },
+    "guitar, overdrive": {
+        path: "https://surikov.github.io/webaudiofontdata/sound/0291_LesPaul_sf2_file.js",
+        name: "_tone_0291_LesPaul_sf2_file"
+    },
     "piano": {
         path: "https://surikov.github.io/webaudiofontdata/sound/0020_JCLive_sf2_file.js",
         name: "_tone_0020_JCLive_sf2_file"
@@ -181,6 +197,10 @@ window.parent.instrumentData = {
         path: "https://surikov.github.io/webaudiofontdata/sound/0121_FluidR3_GM_sf2_file.js",
         name: "_tone_0121_FluidR3_GM_sf2_file"
     },
+    "music box": {
+        path: "https://surikov.github.io/webaudiofontdata/sound/0100_SBLive_sf2.js",
+        name: "_tone_0100_SBLive_sf2"
+    },
     "oboe": {
         path: "https://surikov.github.io/webaudiofontdata/sound/0680_JCLive_sf2_file.js",
         name: "_tone_0680_JCLive_sf2_file"
@@ -192,6 +212,10 @@ window.parent.instrumentData = {
     "tuba": {
         path: "https://surikov.github.io/webaudiofontdata/sound/0580_GeneralUserGS_sf2_file.js",
         name: "_tone_0580_GeneralUserGS_sf2_file"
+    },
+    "vibraphone": {
+        path: "https://surikov.github.io/webaudiofontdata/sound/0110_GeneralUserGS_sf2_file.js",
+        name: "_tone_0110_GeneralUserGS_sf2_file"
     },
 
     // drums
@@ -239,18 +263,22 @@ window.parent.instrumentVolumes = {}
 window.parent.globalInstrumentVolume = 0.5;
 
 // tones
-class Tone {
+class _Tone {
   constructor(id) {
     this.id = id;
     this.on = false;
 
+    //const pannerNode = new StereoPannerNode(audioContext, -1);
     const thisPlayer = new Object;
     thisPlayer.context = new AudioContext();
     thisPlayer.oscillator = thisPlayer.context.createOscillator();
+    thisPlayer.panner = thisPlayer.context.createStereoPanner();
     thisPlayer.gainobj = thisPlayer.context.createGain();
     thisPlayer.oscillator.frequency.value = 100;
+    thisPlayer.panner.pan.value = 0;
     thisPlayer.gainobj.gain.value = 1;
-    thisPlayer.oscillator.connect(thisPlayer.gainobj);
+    thisPlayer.oscillator.connect(thisPlayer.panner);
+    thisPlayer.panner.connect(thisPlayer.gainobj);
     thisPlayer.gainobj.connect(thisPlayer.context.destination);
 
     this.player = thisPlayer;
@@ -269,6 +297,11 @@ class Tone {
   setAmpl = (ampl) => {
     this.ampl = ampl;
     this.player.gainobj.gain.value = this.dBFS2gain(parseInt(ampl));
+  }
+
+  setPan = (pan) => {
+    this.pan = Math.min(Math.max(pan, -100), 100);
+    this.player.panner.pan.setValueAtTime(this.pan / 100, this.player.context.currentTime);
   }
 
   turnOn = () => {
@@ -293,7 +326,7 @@ class Tone {
   }
 
 }
-window.Tone = Tone;
+window._Tone = _Tone;
 window.tones = {};
 
 /* Auxillary Functions */
@@ -411,6 +444,40 @@ function convertListToArrayRecursive(list) {
 }
 window.convertListToArrayRecursive = convertListToArrayRecursive;
 
+const convertArrayToListRecursive = (array) => {
+    if (Array.isArray(array)) {
+        for (var i = 0; i < array.length; i++) {
+            array[i] = convertArrayToListRecursive(array[i]);
+        }
+        return IDE_Morph.prototype.newList(array);
+    }
+    return array;
+}
+window.convertArrayToListRecursive = convertArrayToListRecursive;
+
+function _typeOf(value) {
+    return Object.prototype.toString.call(value).slice(8, -1);
+}
+
+const _isObject = (obj) => {
+  return (typeof obj === "object" || _typeOf(obj) === "Array") && obj !== null;
+}
+
+const _objToArray = (obj) => {
+  return Object.keys(obj).map((key) => {
+    return [key, _isObject(obj[key]) ? 
+        _objToArray(obj[key]) :
+        obj[key]
+    ];
+  });    
+}
+window._objToArray = _objToArray;
+
+function isNumber(myString) {
+  return /^\d+\.\d+$/.test(myString);
+}
+window.isNumber = isNumber;
+
 function hasNumber(myString) {
   return /\d/.test(myString);
 }
@@ -420,6 +487,32 @@ function deep_copy(array) {
   return JSON.parse(JSON.stringify(array));
 }
 window.deep_copy = deep_copy;
+
+/**
+ * Select file(s).
+ * @param {String} contentType The content type of files you wish to select. For instance, use "image/*" to select all types of images.
+ * @param {Boolean} multiple Indicates if the user can select multiple files.
+ * @returns {Promise<File|File[]>} A promise of a file or array of files in case the multiple parameter is true.
+ */
+function _selectFile(contentType, multiple) {
+    return new Promise(resolve => {
+        let input = document.createElement('input');
+        input.type = 'file';
+        input.multiple = multiple;
+        input.accept = contentType;
+
+        input.onchange = () => {
+            let files = Array.from(input.files);
+            if (multiple)
+                resolve(files);
+            else
+                resolve(files[0]);
+        };
+
+        input.click();
+    });
+}
+window._selectFile = _selectFile;
 
 // play dummy sound to initialize
 
