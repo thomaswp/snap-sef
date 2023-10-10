@@ -3115,7 +3115,7 @@ BlockMorph.prototype.setSpec = function (spec, definition) {
 BlockMorph.prototype.userSetSpec = function (spec) {
     Trace.log('Block.rename', {
         'id': this.blockId(),
-        'name': arg,
+        'name': spec,
     });
     var tb = this.topBlock(),
         old = this.abstractBlockSpec();
