@@ -6,7 +6,7 @@
 
     written by Jens Mönig
 
-    Copyright (C) 2023 by Jens Mönig
+    Copyright (C) 2025 by Jens Mönig
 
     This file is part of Snap!.
 
@@ -30,11 +30,12 @@
 /*global modules, List, StageMorph, Costume, SpeechSynthesisUtterance, Sound,
 IDE_Morph, CamSnapshotDialogMorph, SoundRecorderDialogMorph, isSnapObject, nop,
 Color, Process, contains, localize, SnapTranslator, isString, detect, Point,
-SVG_Costume, newCanvas, WatcherMorph, BlockMorph, HatBlockMorph*/
+SVG_Costume, newCanvas, WatcherMorph, BlockMorph, HatBlockMorph, invoke,
+BigUint64Array, DeviceOrientationEvent, console*/
 
 /*jshint esversion: 11, bitwise: false*/
 
-modules.extensions = '2023-May-09';
+modules.extensions = '2025-March-11';
 
 // Global stuff
 
@@ -51,7 +52,9 @@ var SnapExtensions = {
         'https://bjc.berkeley.edu/',
         'https://cs10.org/',
         'https://ecraft2learn.github.io/ai/', // Uni-Oxford, Ken Kahn
-        'https://microworld.edc.org/' // EDC, E. Paul Goldenberg
+        'https://microworld.edc.org/', // EDC, E. Paul Goldenberg
+        'https://birdbraintechnologies.com/', // BirdBrain technologies, Tom Lauwers
+        'https://www.birdbraintechnologies.com/' // compatibility
     ]
 };
 
@@ -232,6 +235,134 @@ var SnapExtensions = {
 
 // Primitives
 
+// meta utils (snap_):
+
+SnapExtensions.primitives.set(
+    'snap_yield',
+    function (proc) {
+        if (!proc.isAtomic) {
+            proc.readyToYield = true;
+        }
+    }
+);
+
+SnapExtensions.primitives.set(
+    'snap_xml_encode(script)',
+    function (script, proc) {
+        proc.assertType(script, ['command', 'reporter', 'predicate', 'hat']);
+        return script.expression.toXMLString(this);
+    }
+);
+
+SnapExtensions.primitives.set(
+    'snap_xml_decode(txt)',
+    function (xml, proc) {
+        proc.assertType(xml, 'text');
+        return this.parentThatIsA(IDE_Morph).deserializeScriptString(xml).reify();
+    }
+);
+
+SnapExtensions.primitives.set(
+    'snap_bootstrap(block)',
+    function (script, proc) {
+        proc.assertType(script, ['command', 'reporter', 'predicate']);
+        var block = script.expression;
+        if (block.isCustomBlock &&
+            block.definition.isGlobal &&
+            block.definition.selector &&
+            !block.definition.isBootstrapped()
+            /* // require "blocks all the way" to be enabled, commented out
+            &&
+            SpriteMorph.prototype.blocks[
+                block.definition.selector
+            ].definition !== undefined
+            */
+        ) {
+            block.definition.bootstrap(proc.blockReceiver());
+        }
+    }
+);
+
+SnapExtensions.primitives.set(
+    'snap_un-bootstrap(block)',
+    function (script, proc) {
+        proc.assertType(script, ['command', 'reporter', 'predicate']);
+        var block = script.expression;
+        if (block.isCustomBlock &&
+            block.definition.isGlobal &&
+            block.definition.isBootstrapped()
+        ) {
+            block.definition.unBootstrap(proc.blockReceiver());
+        }
+    }
+);
+
+SnapExtensions.primitives.set(
+    'snap_bootstrapped(block)?',
+    function (script, proc) {
+        proc.assertType(script, ['command', 'reporter', 'predicate']);
+        var block = script.expression;
+        return block.isCustomBlock &&
+            block.definition.isGlobal &&
+            block.definition.isBootstrapped();
+    }
+);
+
+SnapExtensions.primitives.set(
+    'snap_block_selectors',
+    function () {
+        return new List([
+            ['label'],
+            ['definition'],
+            ['comment'],
+            ['category'],
+            ['type'],
+            ['scope'],
+            ['selector'],
+            ['slots'],
+            ['defaults'],
+            ['menus'],
+            ['editables'],
+            ['replaceables'],
+            ['separators'],
+            ['collapses'],
+            ['expands'],
+            ['initial slots'],
+            ['min slots'],
+            ['max slots'],
+            ['translations']
+        ]);
+    }
+);
+
+SnapExtensions.primitives.set(
+    'snap_threadsafe?',
+    function () {
+        return this.parentThatIsA(StageMorph).isThreadSafe;
+    }
+);
+
+SnapExtensions.primitives.set(
+    'snap_threadsafe(on?)',
+    function (bool) {
+        this.parentThatIsA(StageMorph).isThreadSafe = (bool === true);
+    }
+);
+
+SnapExtensions.primitives.set(
+    'snap_quicksteps?',
+    function () {
+        return StageMorph.prototype.enableQuicksteps;
+    }
+);
+
+SnapExtensions.primitives.set(
+    'snap_quicksteps(on?)',
+    function (bool) {
+        StageMorph.prototype.enableQuicksteps = (bool === true);
+    }
+);
+
 // errors & exceptions (err_):
 
 SnapExtensions.primitives.set(
@@ -317,6 +448,8 @@ SnapExtensions.primitives.set(
     /*
         supported transformation names:
         -------------------------------
+        select
+        unselect
         encode URI
         decode URI
         encode URI component
@@ -444,6 +577,34 @@ SnapExtensions.primitives.set(
     }
 );
 
+SnapExtensions.primitives.set(
+    'dta_zip(list)',
+    function (data, proc) {
+        var zip, i, len,
+            join = (a, b) => [a, b],
+            append = (a, b) => {a.push(b); return a; },
+            merge = atom => atom instanceof Array ? new List(atom) : atom;
+        proc.assertType(data, 'list');
+        len = data.length();
+        if (len < 2) {
+            return data.at(1);
+        }
+        zip = proc.hyperDyadic(join, data.at(1), data.at(2));
+        for (i = 3; i <= len; i += 1) {
+            zip = proc.hyperDyadic(append, zip, data.at(i));
+        }
+        return proc.hyperMonadic(merge, zip);
+    }
+);
+
+SnapExtensions.primitives.set(
+    'dta_changeBy(data, delta)',
+    function (data, delta, proc) {
+        proc.assertType(data, 'list');
+        proc.hyperChangeBy(data, delta);
+    }
+);
+
 // World map (map_):
 
 SnapExtensions.primitives.set(
@@ -547,7 +708,7 @@ SnapExtensions.primitives.set(
     }
 );
 
-// text-to-speech (tts_):
+// text-to-speech, voice-to-text (tts_):
 
 SnapExtensions.primitives.set(
     'tts_speak(txt, lang, pitch, rate)',
@@ -563,7 +724,90 @@ SnapExtensions.primitives.set(
     }
 );
 
+SnapExtensions.primitives.set(
+    'tts_recognize',
+    function (proc) {
+        var sprec, done,
+            acc = proc.context.accumulator;
+        if (!acc) {
+            sprec = window.SpeechRecognition ||
+                window.webkitSpeechRecognition ||
+                window.mozSpeechRecognition ||
+                window.msSpeechRecognition;
+            if (!sprec) {
+                throw new Error('Speech Recognition is unavailable');
+            }
+            acc = proc.context.accumulator = {
+                voice: new sprec(),
+                text: null
+            };
+            acc.voice.onresult = (event) => {
+                acc.text = event.results[0][0].transcript;
+            };
+            done = () => acc.text = '';
+            acc.voice.onnomatch = done;
+            acc.voice.orreror = done;
+            acc.voice.start();
+
+        } else if (acc.text !== null) {
+            return acc.text;
+        }
+        proc.pushContext('doYield');
+        proc.pushContext();
+    }
+);
+
 // XHR:
+
+SnapExtensions.primitives.set(
+    'xhr_binary(url, webIDL_type)',
+    function (url, idl, proc) {
+        var response, buffer;
+        url = decodeURI(url);
+        proc.checkURLAllowed(url);
+        if (!proc.httpRequest) {
+            proc.httpRequest = new XMLHttpRequest();
+            proc.httpRequest.open("GET", url, true);
+            proc.httpRequest.responseType = "arraybuffer";
+            proc.httpRequest.send(null);
+        } else if (proc.httpRequest.readyState === 4) {
+            buffer = proc.httpRequest.response;
+            switch (idl) {
+                case 'byte':
+                    response = new List(new Int8Array(buffer));
+                    break;
+                case 'short':
+                    response = new List(new Int16Array(buffer));
+                    break;
+                case 'unsigned short':
+                    response = new List(new Uint16Array(buffer));
+                    break;
+                case 'long':
+                    response = new List(new Int32Array(buffer));
+                    break;
+                case 'unsigned long':
+                    response = new List(new Uint32Array(buffer));
+                    break;
+                case 'unrestricted float':
+                    response = new List(new Float32Array(buffer));
+                    break;
+                case 'unrestricted double':
+                    response = new List(new Float64Array(buffer));
+                    break;
+                case 'bigint':
+                    response = new List(new BigUint64Array(buffer));
+                    break;
+                case 'octet':
+                default:
+                    response = new List(new Uint8Array(buffer));
+            }
+            proc.httpRequest = null;
+            return response;
+        }
+        proc.pushContext('doYield');
+        proc.pushContext();
+    }
+);
 
 SnapExtensions.primitives.set(
     'xhr_request(mth, url, dta, hdrs)',
@@ -631,6 +875,77 @@ SnapExtensions.primitives.set(
     }
 );
 
+// Device Orientation (ori_ "tilt")
+
+SnapExtensions.primitives.set(
+    'ori_tilt(xyz)',
+    function (axis) {
+        var ide = this.parentThatIsA(IDE_Morph),
+            isPortrait = window.matchMedia("(orientation: portrait)").matches,
+            myself = this,
+            x, y, z;
+
+        function updateTilt(event) {
+            var z = event.alpha || 0;
+            ide.tilt.put(event.gamma || 0, 1);
+            ide.tilt.put(-(event.beta || 0), 2);
+            ide.tilt.put(z >= 180 ? 360 - z : -z, 3);
+        }
+
+        function userTriggerTilt() {
+            DeviceOrientationEvent.requestPermission().then(response => {
+                if (response === 'granted') {
+                    // Permission granted
+                    window.addEventListener(
+                        'deviceorientation',
+                        updateTilt
+                    );
+                } else {
+                    // Permission denied
+                    myself.inform('Warning:\nDevice orientation failed.');
+                }
+            }).catch(console.error);
+        }
+
+        function activate() {
+            if (typeof(DeviceOrientationEvent) !== 'undefined' &&
+                typeof(DeviceOrientationEvent.requestPermission) === 'function'
+            ) {
+                ide.confirm(
+                    'Activate device orientation',
+                    'Tilt Sensor',
+                    userTriggerTilt
+                );
+            } else {
+                // other devices
+                window.addEventListener('deviceorientation', updateTilt);
+            }
+        }
+
+        if (!ide.tilt) {
+            ide.tilt = new List([0, 0, 0]);
+            activate();
+        }
+
+        x = isPortrait ? ide.tilt.at(1) : -ide.tilt.at(2);
+        y = ide.tilt.at(isPortrait ? 2 : 1);
+        z = ide.tilt.at(3);
+        if (!isPortrait) {
+            z = (z > 90 ? z - 180 : z + 90);
+        }
+        switch (axis) {
+            case 'x':
+                return x;
+            case 'y':
+                return y;
+            case 'z':
+                return z;
+            default:
+                return isPortrait ? ide.tilt : new List([x, y, z]);
+        }
+    }
+);
+
 // MediaComp (mda_)
 
 SnapExtensions.primitives.set(
@@ -677,6 +992,15 @@ SnapExtensions.primitives.set(
         soundRecorder.key = 'microphone';
         soundRecorder.popUp(this.world());
         return () => result;
+    }
+);
+
+SnapExtensions.primitives.set(
+    'mda_set_mic_resolution(idx)',
+    function (idx, proc) {
+        proc.assertType(+idx, 'number');
+        var microphone = this.parentThatIsA(StageMorph).microphone;
+        microphone.setResolution(+idx);
     }
 );
 
@@ -749,6 +1073,13 @@ SnapExtensions.primitives.set(
             ide.hasChangedMedia = true;
             ide.recordUnsavedChanges();
         }
+    }
+);
+
+SnapExtensions.primitives.set(
+    'obj_version(obj)',
+    function (obj) {
+        return +(obj instanceof List ? obj.lastChanged : obj?.version) || 0;
     }
 );
 
@@ -961,7 +1292,7 @@ SnapExtensions.primitives.set(
     'ide_hide(block)',
     function (context, proc) {
         var ide = this.parentThatIsA(IDE_Morph);
-        proc.assertType(context, ['command', 'reporter', 'predicate']);
+        proc.assertType(context, ['command', 'reporter', 'predicate', 'hat']);
         this.changeBlockVisibility(context.expression, true);
         ide.flushBlocksCache();
         ide.refreshPalette();
@@ -973,7 +1304,7 @@ SnapExtensions.primitives.set(
     'ide_show(block)',
     function (context, proc) {
         var ide = this.parentThatIsA(IDE_Morph);
-        proc.assertType(context, ['command', 'reporter', 'predicate']);
+        proc.assertType(context, ['command', 'reporter', 'predicate', 'hat']);
         this.changeBlockVisibility(context.expression, false);
         ide.flushBlocksCache();
         ide.refreshPalette();
@@ -1178,7 +1509,30 @@ SnapExtensions.primitives.set(
 SnapExtensions.primitives.set(
     'srl_open(baud, buffer)',
     function (baud, buf, proc) {
-        var acc = proc.context.accumulator;
+        var acc = proc.context.accumulator,
+            stage = this.parentThatIsA(StageMorph),
+            world = stage.world(),
+            snapProcessBlockDef =
+                stage.globalBlocks.find(
+                    def => def.spec == '__mb_process_data__'
+                );
+
+        function readCallback (port) {
+            var block = snapProcessBlockDef.blockInstance();
+            if (block && port?.connected && port?.writable) {
+                block.parent = stage;
+                try {
+                    invoke(
+                        block,
+                        null,  // args
+                        stage  // receiver
+                    );
+                    world.schedule(() => readCallback(port));
+                } catch (err) {
+                    throw(err);
+                }
+            }
+        }
 
         async function forceClose(port){
             try {
@@ -1212,8 +1566,11 @@ SnapExtensions.primitives.set(
                 }
             }) (baud || 115200);
         } else if (acc.result !== false) {
-            if (acc.result instanceof  Error) {
+            if (acc.result instanceof Error) {
                 throw acc.result;
+            }
+            if (snapProcessBlockDef) {
+                readCallback(acc.result);
             }
             return acc.result;
         }

@@ -1,7 +1,7 @@
 /* MQTTExtension.js - add MQTT protocol to Snap!
  * ===========================================
  * MQTT library developed by Xavier Pi
- * Modified by Simon Walters
+ * Modified by Simon Walters and Xavier Pi
  * and converted into an extension
  * November 2021
  * V1.1 - change back to using standard naming e.g payload not message
@@ -12,8 +12,16 @@
  * V1.5.2 20Jan23 change subscribe default to be text and accept boolean to change to binary (corrected 18:23)
  * V1.5.3 22Jan23 make old subscribe block be compatible with new extension code
  * V1.5.4 15Feb22 When returning text to Snap!, restore explicitly making payload into a string.  Also restore cymplecy.uk instead of simplesi.cloud
+ * V1.6.0 13Oct2023 If binary options selected then pub expects payload to be a flat List (values 0-255) and sub will return a List
+ * V1.6.1 05Jan2024 "binary" replaced by "buffer mode"
+ * V1.6.2 17Jan2023 bugfix -remove automatic convert JSON to Snap! list
+ * V1.7.0 12Jul2024 Add in maximum QoS for subscribe
+ * V1.7.1 28Feb2025 Added Base64 encoding/decoding blocks
+ * V1.7.2 02Mar2025 Added the public HiveMQ broker to the list 
+ * V1.7.3 12Mar2025 Slight bux fix to Base64 code 
+ * V1.7.4 18Mar2025 Another small bugfix to Base64 code
+ * V1.7.5 17Apr2025 Change Base64 unicode string handling
  */
-
 
 
 SnapExtensions.primitives.set(
@@ -73,8 +81,6 @@ SnapExtensions.primitives.set(
 			wsbroker = wsbroker + '/mqtt'
 		} else if (wsbroker == 'wss://test.mosquitto.org') {
 			wsbroker = wsbroker + ':8081'
-		} else if (wsbroker == 'ws://vps656540.ovh.net') {
-			wsbroker = wsbroker + ':8080'
 		} else if (wsbroker == 'ws://test.mosquitto.org') {
 			wsbroker = wsbroker + ':8080'
 		} else if (broker == 'broker.xmqtt.net') {
@@ -83,6 +89,10 @@ SnapExtensions.primitives.set(
 			wsbroker = wsbroker + ':8084'
 		} else if (wsbroker == 'ws://cymplecy.uk') {
 			wsbroker = wsbroker + ':8083'
+		} else if (wsbroker == 'wss://broker.hivemq.com') {
+			wsbroker = wsbroker + ':8884/mqtt'
+		} else if (wsbroker == 'ws://broker.hivemq.com') {
+			wsbroker = wsbroker + ':8080/mqtt'
 		} else if (wsbroker == 'ws://localhost') {
 			wsbroker = wsbroker + ':9001'
 		}
@@ -131,8 +141,17 @@ SnapExtensions.primitives.set(
 	function (broker,topic,callback,options) {
 		/* github.com/pixavier/mqtt4snap  */
 		/* adapted into extension by cymplecy 26Nov21 */
+        /* modified 13OCt2023 by cymplecy to return binary data as a list */
+		/* modified 11Jul2024 by pixavier to add paramete	 for qos */
 		function log(txt) {
 			console.log('mqt_sub: ', new Date().toString(), txt);
+		}
+
+		function arrayToList(data) {
+			if (!Array.isArray(data)) {
+				return data;
+			}
+			return new List(data.map((x) => arrayToList(x)));
 		}
 
 		broker = broker ? broker.trim() : '';
@@ -141,17 +160,12 @@ SnapExtensions.primitives.set(
 			broker = broker.substr(broker.indexOf('|') + 1);
 		}
 		
-		//console.log(options);
-		if (options == '') {
-			options = "{\"mode\":true}" 
-		}
+		topic = topic ? topic.trim() : topic;
 		options = JSON.parse(options);
 		const opts = {};
-		if (options['mode']) {
-			opts.mode = options['mode'];
+		if (options['qos']) {
+			opts.qos = Number(options['qos']);
 		}
-
-		topic = topic ? topic.trim() : topic;
 
 		let stage =  this.parentThatIsA(StageMorph);
 
@@ -167,14 +181,13 @@ SnapExtensions.primitives.set(
 			throw new Error('No connection to broker '+broker);
 		}
 
-		stage.mqtt[brokerKey].subscribe(topic);
-
+		stage.mqtt[brokerKey].subscribe(topic, opts);
+		
 		let mqttListener = function (aTopic, payload) {
 			if (!mqttWildcard(aTopic, topic)) {return;}
 			let p = new Process();
-			//console.log(opts.mode);
-			if (opts.mode && (opts.mode == true || opts.mode == 'binary')) {
-				newPayload = payload.reduce( (res, val) => res+String.fromCharCode( val), "");
+			if (options['mode'] && options['mode'] == true) {
+				newPayload = new List(payload);
 			} else {
 				newPayload = payload.toString();
 			}
@@ -214,12 +227,14 @@ SnapExtensions.primitives.set(
 	}
 );
 
+
 SnapExtensions.primitives.set(
 	'mqt_pub(broker,topic,payload,options)',
 	function (broker,topic,payload,options) {
 		/* original code from github.com/pixavier/mqtt4snap  */
 		/* adapted into extension by cymplecy 26Nov21 */
-		/* modified 5 Sep2021 by cymplecy to add parameters for qos and retain flag */
+		/* modified 05Sep2021 by cymplecy to add parameters for qos and retain flag */
+        /* modified 13Oct2023 by cymplecy to handle binary data in a list */
 		function log(txt) {
 			console.log('mqt_pub: ', new Date().toString(), txt);
 		}
@@ -242,6 +257,9 @@ SnapExtensions.primitives.set(
 			opts.retain = options["retain"];
 		}
 
+		//console.log(payload.contents);
+		//console.log(new Uint8Array(payload.contents));
+
 		let stage =  this.parentThatIsA(StageMorph);
 
 		if (!('mqtt' in stage)){
@@ -256,11 +274,13 @@ SnapExtensions.primitives.set(
 
 		//let prefix = window.location.protocol == 'https:'?'wss':'ws';
 		//let wsbroker = prefix+'://'+broker;
-
-
 		try{
 			let client = stage.mqtt[brokerKey];
-			client.publish(topic, '' + payload, opts);
+			if (options['mode'] && options['mode'] == true) {
+				client.publish(topic, new Uint8Array(payload.asArray()), opts);
+			} else {
+				client.publish(topic, '' + payload, opts);
+			}
 			//console.log(opts)
 		} catch(e) {
 			log('Failed to publish payload ' + payload);
@@ -348,3 +368,78 @@ SnapExtensions.primitives.set(
 	}
 );
 
+
+SnapExtensions.primitives.set(
+    'mqt_to_base64(media_or_data)',
+    function (media_or_data) {
+        if (media_or_data instanceof List) {
+           return SnapExtensions.primitives.get('mqt_list_to_base64(lst)')(media_or_data);
+    } else if (media_or_data instanceof Sound) {
+            return media_or_data.audio.src;
+        } else if (media_or_data instanceof Costume) {
+            return media_or_data.contents.toDataURL();
+        } else {
+            return btoa(unescape(encodeURIComponent(media_or_data)));
+        }
+    }
+);
+
+SnapExtensions.primitives.set(
+    'mqt_from_base64(b64)',
+    function (b64, proc) {
+        if (b64.startsWith('data:image')) {
+            return SnapExtensions.primitives.get('cst_load(url)')(b64, proc);
+        } else if (b64.startsWith('data:audio')) {
+            if (!proc.context.accumulator) {
+                proc.context.accumulator = {
+                    audio: document.createElement('audio'),
+                    snd: null
+                };
+                proc.context.accumulator.audio.addEventListener("loadeddata", () => {
+                    proc.context.accumulator.snd = new Sound(proc.context.accumulator.audio, name);
+                });
+                proc.context.accumulator.audio.src = b64;
+            } else if (proc.context.accumulator.snd) {
+                return proc.context.accumulator.snd;
+            }
+            proc.pushContext('doYield');
+            proc.pushContext();
+        } else {
+            try {
+               // to return a Unicode string
+               return decodeURIComponent(escape(atob(b64)));
+            } catch(e) {
+               // otherwise simple decode
+               return window.atob(b64);
+            }
+        }
+    }
+);
+
+SnapExtensions.primitives.set(
+    'mqt_list_to_base64(lst)',
+    function (lst) {
+        var byteArray = new Uint8Array(lst.contents.length);
+        lst.contents.forEach((value, i) => {byteArray[i] = value & 0xff;});
+    return window.btoa(new Uint8Array(byteArray.buffer).reduce((data, byte) => data + String.fromCharCode(byte), ''));
+    }
+);
+
+SnapExtensions.primitives.set(
+    'mqt_binary_to_list(bytes)',
+    function (bytes) {
+	var n = bytes.length;    
+        var byteArray = new Array(n);
+	for (i = 0; i < n; i++) {
+	    byteArray[i] = bytes.charCodeAt(i);
+	}    
+	return new List(byteArray);
+    }
+);
+
+SnapExtensions.primitives.set(
+    'mqt_console_log(param)',
+    function (param) {
+        console.log(param);
+    }
+);

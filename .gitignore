@@ -2,3 +2,4 @@
 *.swp
 .tern-port
 libraries/sef-config.js
+/src/.vscode
