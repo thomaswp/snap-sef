@@ -2107,7 +2107,7 @@ CustomCommandBlockMorph.prototype.moveInPalette = function (dir = 'up') {
         ide.flushPaletteCache();
         ide.categories.refreshEmpty();
         ide.refreshPalette();
-    }    
+    }
 };
 
 CustomCommandBlockMorph.prototype.exportBlockDefinition = function () {
@@ -2525,6 +2525,9 @@ CustomReporterBlockMorph.prototype.alternatives
 CustomHatBlockMorph.prototype = new HatBlockMorph();
 CustomHatBlockMorph.prototype.constructor = CustomHatBlockMorph;
 CustomHatBlockMorph.uber = HatBlockMorph.prototype;
+
+CustomHatBlockMorph.prototype.getDefinitionJSON =
+    CustomCommandBlockMorph.prototype.getDefinitionJSON;
 
 // CustomHatBlockMorph shared settings:
 
@@ -3441,7 +3444,7 @@ BlockEditorMorph.prototype.ok = function() {
     BlockEditorMorph.uber.ok.apply(this, arguments);
 };
 
-BlockEditorMorph.prototype.getDefinitionJSON = 
+BlockEditorMorph.prototype.getDefinitionJSON =
     CustomCommandBlockMorph.prototype.getDefinitionJSON;
 
 BlockEditorMorph.prototype.init = function (definition, target) {
@@ -3758,7 +3761,7 @@ BlockEditorMorph.prototype.updateDefinition = function () {
     // Copy IDs when copying blocks, rather than making new block IDs
     // as we would do for duplicating a block
     BlockMorph.copyIDs = true;
-    
+
     this.definition.receiver = this.target; // only for serialization
     this.definition.spec = this.prototypeSpec();
     this.definition.declarations = this.prototypeSlots();
