@@ -2518,6 +2518,9 @@ CustomReporterBlockMorph.prototype.relabel
 CustomReporterBlockMorph.prototype.alternatives
     = CustomCommandBlockMorph.prototype.alternatives;
 
+CustomReporterBlockMorph.prototype.getDefinitionJSON =
+    CustomCommandBlockMorph.prototype.getDefinitionJSON;
+
 // CustomHatBlockMorph ////////////////////////////////////////////
 
 // CustomHatBlockMorph inherits from HatBlockMorph:
